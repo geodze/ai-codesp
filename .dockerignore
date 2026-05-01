@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env*.local
+.vercel
+README.md
+Dockerfile
+.dockerignore
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.DS_Store
+.vscode
+.idea
+v0_memories
+user_read_only_context
