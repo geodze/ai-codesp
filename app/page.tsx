@@ -19,6 +19,7 @@ export default function HomePage() {
     provider: null,
     fallbackCount: 0,
   })
+  const [browserVisible, setBrowserVisible] = useState(true)
 
   return (
     <main className="flex h-dvh flex-col bg-background text-foreground">
@@ -26,19 +27,29 @@ export default function HomePage() {
         modelLabel={modelInfo.label}
         modelProvider={modelInfo.provider}
         fallbackCount={modelInfo.fallbackCount}
+        browserVisible={browserVisible}
+        onToggleBrowser={() => setBrowserVisible((v) => !v)}
       />
 
       <div className="min-h-0 flex-1">
-        <PanelGroup direction="horizontal" autoSaveId="codespace-h">
-          {/* Левая колонка: Браузер */}
-          <Panel defaultSize={55} minSize={30}>
-            <BrowserPanel />
-          </Panel>
+        <PanelGroup
+          key={browserVisible ? "with-browser" : "no-browser"}
+          direction="horizontal"
+          autoSaveId={browserVisible ? "codespace-h" : "codespace-h-nobrowser"}
+        >
+          {browserVisible ? (
+            <>
+              {/* Левая колонка: Браузер */}
+              <Panel defaultSize={55} minSize={30}>
+                <BrowserPanel />
+              </Panel>
 
-          <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary" />
+              <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-primary/50 data-[resize-handle-state=drag]:bg-primary" />
+            </>
+          ) : null}
 
           {/* Правая колонка: Чат сверху + Терминал снизу */}
-          <Panel defaultSize={45} minSize={25}>
+          <Panel defaultSize={browserVisible ? 45 : 100} minSize={25}>
             <PanelGroup direction="vertical" autoSaveId="codespace-v">
               <Panel defaultSize={60} minSize={20}>
                 <ChatPanel onModelChange={setModelInfo} />

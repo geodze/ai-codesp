@@ -1,20 +1,42 @@
 "use client"
 
-import { Cloud, Cpu, HardDrive, Zap } from "lucide-react"
+import { Cloud, Cpu, HardDrive, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react"
 
 type HeaderProps = {
   modelLabel: string | null
   modelProvider: string | null
   fallbackCount: number
+  browserVisible: boolean
+  onToggleBrowser: () => void
 }
 
-export function Header({ modelLabel, modelProvider, fallbackCount }: HeaderProps) {
+export function Header({
+  modelLabel,
+  modelProvider,
+  fallbackCount,
+  browserVisible,
+  onToggleBrowser,
+}: HeaderProps) {
   const isFallback = fallbackCount > 0
   const isFree = modelProvider === "openrouter-free"
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggleBrowser}
+          aria-label={browserVisible ? "Скрыть панель браузера" : "Показать панель браузера"}
+          aria-pressed={browserVisible}
+          title={browserVisible ? "Скрыть браузер" : "Показать браузер"}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          {browserVisible ? (
+            <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
         <Cloud className="h-5 w-5 text-primary" aria-hidden="true" />
         <h1 className="text-sm font-semibold tracking-tight">AI Codespace</h1>
         <span className="ml-2 hidden text-xs text-muted-foreground md:inline">
