@@ -147,6 +147,23 @@ class Storage:
     def is_enabled(self) -> bool:
         return bool(self._settings().get("enabled", True))
 
+    # ---- brain mode (auto vs devin) -------------------------------------
+
+    def get_brain(self) -> str:
+        """Return current brain mode: ``auto`` (LLM via OpenRouter) or ``devin``.
+
+        ``devin`` mode means the bot does NOT auto-reply; incoming messages
+        are logged to ``data/inbox.log`` and a real Devin session (with shell
+        access to the same VM) responds via ``python -m bot.send``.
+        """
+        return str(self._settings().get("brain", "auto"))
+
+    def set_brain(self, mode: str) -> None:
+        if mode not in ("auto", "devin"):
+            raise ValueError(f"unknown brain mode '{mode}', expected 'auto' or 'devin'")
+        self._settings()["brain"] = mode
+        self._save()
+
     def set_enabled(self, enabled: bool) -> None:
         self._settings()["enabled"] = bool(enabled)
         self._save()

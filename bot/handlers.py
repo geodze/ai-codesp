@@ -1,11 +1,13 @@
 import logging
+from typing import Any, Awaitable, Callable
 
-from aiogram import F, Router
+from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, TelegramObject
 
 from .agent import NoApiKeyError, run_agent
 from .config import ALLOWED_USER_IDS, DEFAULT_MODEL, PROJECTS_DIR
+from .inbox import log_inbox
 from .storage import KNOWN_PROVIDERS, storage
 from .tools import ToolError, clone_repo, exec_bash, project_root_for
 
@@ -13,9 +15,36 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+class _InboxLoggerMiddleware(BaseMiddleware):
+    """Append every incoming Message to ``data/inbox.log`` before dispatch.
+
+    Provides a chat-history backup AND the inbox a real Devin session reads
+    when ``brain=devin``.
+    """
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, Message) and event.text:
+            kind = "cmd" if event.text.startswith("/") else "text"
+            log_inbox(
+                user_id=event.from_user.id if event.from_user else None,
+                chat_id=event.chat.id,
+                text=event.text,
+                kind=kind,
+            )
+        return await handler(event, data)
+
+
+router.message.middleware(_InboxLoggerMiddleware())
+
+
 HELP_TEXT = (
     "<b>codespace bot</b>\n"
-    "Активная модель: <code>{model}</code> {state}\n\n"
+    "Brain: <code>{brain}</code> | model: <code>{model}</code> {state}\n\n"
     "<b>Проекты</b>\n"
     "/projects — список загруженных проектов\n"
     "/clone &lt;git-url&gt; [имя] — клонировать репо\n"
@@ -25,7 +54,9 @@ HELP_TEXT = (
     "<b>Выполнение</b>\n"
     "/exec &lt;команда&gt; — bash в текущем проекте\n"
     "/git &lt;аргументы&gt; — то же что /exec git ...\n\n"
-    "<b>Мозги (ключи и модели)</b>\n"
+    "<b>Мозги</b>\n"
+    "/brain — кто сейчас в седле (auto / devin)\n"
+    "/setbrain auto|devin — переключить. devin = бот логирует в inbox.log и не отвечает автоматически\n"
     "/keys — какие API-ключи установлены\n"
     "/setkey &lt;provider&gt; &lt;key&gt; — задать ключ (openrouter, anthropic, openai)\n"
     "/delkey &lt;provider&gt; — удалить ключ\n"
@@ -35,7 +66,7 @@ HELP_TEXT = (
     "/disable, /enable — выключить/включить бот\n"
     "/reset — сбросить контекст разговора\n"
     "/help — это сообщение\n\n"
-    "Любое сообщение без / отправляется агенту: он сам читает/правит файлы и запускает команды."
+    "Любое сообщение без / отправляется в текущий brain."
 )
 
 # Curated catalogue of models worth pinning. /setmodel accepts any string
@@ -47,7 +78,8 @@ MODEL_CATALOGUE: list[tuple[str, str]] = [
     ("qwen/qwen3-coder:free", "Qwen3 Coder — free"),
     ("minimax/minimax-m2.5:free", "MiniMax 2.5 — free"),
     # Anthropic Claude via OpenRouter (needs OpenRouter credit, ~5% markup).
-    ("anthropic/claude-opus-4.5", "Claude Opus 4.5 — strongest, expensive"),
+    ("anthropic/claude-opus-4.7", "Claude Opus 4.7 — newest (Apr 16 2026), strongest"),
+    ("anthropic/claude-opus-4.6", "Claude Opus 4.6 — prev-gen Opus (Feb 2026)"),
     ("anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5 — balanced"),
     ("anthropic/claude-haiku-4.5", "Claude Haiku 4.5 — fast, cheap"),
     # OpenAI via OpenRouter.
@@ -120,7 +152,11 @@ async def cmd_start(message: Message) -> None:
         return
     state_label = "" if storage.is_enabled() else "<i>(выключен — /enable чтобы поднять)</i>"
     await message.answer(
-        HELP_TEXT.format(model=storage.get_model() or DEFAULT_MODEL, state=state_label)
+        HELP_TEXT.format(
+            brain=storage.get_brain(),
+            model=storage.get_model() or DEFAULT_MODEL,
+            state=state_label,
+        )
     )
 
 
@@ -404,6 +440,52 @@ async def cmd_disable(message: Message) -> None:
     )
 
 
+# ---- /brain, /setbrain ---------------------------------------------------
+
+
+@router.message(Command("brain"))
+async def cmd_brain(message: Message) -> None:
+    if not _is_authorized(message):
+        await _deny(message)
+        return
+    brain = storage.get_brain()
+    if brain == "devin":
+        await message.answer(
+            "Brain: <b>devin</b>\n"
+            "Бот не отвечает автоматически. Входящие пишутся в <code>data/inbox.log</code>; Devin (в своём чате с шелл-доступом к серверу) читает их и отвечает через <code>python -m bot.send</code>.\n"
+            "Обратно в авто: <code>/setbrain auto</code>"
+        )
+    else:
+        await message.answer(
+            f"Brain: <b>auto</b>\n"
+            f"Активная модель: <code>{_html_escape(storage.get_model() or DEFAULT_MODEL)}</code>"
+        )
+
+
+@router.message(Command("setbrain"))
+async def cmd_setbrain(message: Message, command: CommandObject) -> None:
+    if not _is_authorized(message):
+        await _deny(message)
+        return
+    mode = (command.args or "").strip().lower()
+    if mode not in ("auto", "devin"):
+        await message.answer(
+            "Использование: <code>/setbrain auto|devin</code>\n"
+            "• <b>auto</b> — бот отвечает через LLM (текущая модель в /models).\n"
+            "• <b>devin</b> — бот логирует в inbox.log и ждёт ручного ответа от Devin-сессии."
+        )
+        return
+    storage.set_brain(mode)
+    if mode == "devin":
+        await message.answer(
+            "Brain: <b>devin</b>. Бот будет писать входящие в <code>data/inbox.log</code> и отвечать краткой квитанцией. Ожидаю что Devin пришлёт ответ через <code>python -m bot.send</code>."
+        )
+    else:
+        await message.answer(
+            f"Brain: <b>auto</b>. Активная модель: <code>{_html_escape(storage.get_model() or DEFAULT_MODEL)}</code>."
+        )
+
+
 # ---- text handler ---------------------------------------------------------
 
 
@@ -412,15 +494,23 @@ async def handle_text(message: Message) -> None:
     if not _is_authorized(message):
         await _deny(message)
         return
+    user_id = message.from_user.id if message.from_user else None
+    # Inbox logging happens in middleware above.
     if not storage.is_enabled():
         await message.answer(
             "Бот выключен. Включи через <code>/enable</code>."
         )
         return
-    cwd = storage.get_cwd(message.from_user.id)
+    if storage.get_brain() == "devin":
+        await message.answer(
+            "Принято. Brain=devin — жди ответ от Devin.\n"
+            "<i>Сообщение записано в inbox.log. Чтобы бот опять отвечал сам — /setbrain auto</i>"
+        )
+        return
+    cwd = storage.get_cwd(user_id) if user_id is not None else None
     await message.bot.send_chat_action(message.chat.id, "typing")
     try:
-        answer = await run_agent(message.from_user.id, message.text or "", cwd)
+        answer = await run_agent(user_id or 0, message.text or "", cwd)
     except NoApiKeyError as exc:
         await message.answer(str(exc))
         return
