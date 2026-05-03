@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: codesp-bot
+    runtime: docker
+    dockerfilePath: ./bot/Dockerfile
+    dockerContext: .
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: BOT_MODE
+        value: webhook
+      - key: BOT_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ALLOWED_USER_IDS
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: MODEL
+        value: nvidia/nemotron-3-super-120b-a12b:free
+      - key: FALLBACK_MODELS
+        value: openai/gpt-oss-120b:free,qwen/qwen3-coder:free,minimax/minimax-m2.5:free
+      - key: DATA_DIR
+        value: /tmp/bot-data
