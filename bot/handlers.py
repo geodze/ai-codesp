@@ -467,7 +467,11 @@ async def cmd_setbrain(message: Message, command: CommandObject) -> None:
     if not _is_authorized(message):
         await _deny(message)
         return
-    mode = (command.args or "").strip().lower()
+    raw = (command.args or "").strip().lower()
+    # Take only the first whitespace-separated token as the mode; ignore
+    # anything trailing so users can copy-paste like '/setbrain devin посчитай 8+1'
+    # without getting a usage error.
+    mode = raw.split(maxsplit=1)[0] if raw else ""
     if mode not in ("auto", "devin"):
         await message.answer(
             "Использование: <code>/setbrain auto|devin</code>\n"
