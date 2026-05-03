@@ -16,7 +16,9 @@ def _split_ids(raw: str) -> set[int]:
 
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 ALLOWED_USER_IDS = _split_ids(os.environ.get("ALLOWED_USER_IDS", ""))
 
 MODE = os.environ.get("BOT_MODE", "webhook")
@@ -25,7 +27,9 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 WEBHOOK_PATH = f"/tg/{BOT_TOKEN.split(':', 1)[0]}"
 WEBHOOK_URL = f"{PUBLIC_URL}{WEBHOOK_PATH}" if PUBLIC_URL else ""
 
-MODEL = os.environ.get("MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+DEFAULT_MODEL = os.environ.get("MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+# Backward-compat alias for older imports.
+MODEL = DEFAULT_MODEL
 FALLBACK_MODELS = [
     m.strip()
     for m in os.environ.get(

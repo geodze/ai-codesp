@@ -40,17 +40,30 @@ python -m bot.main
 
 ## Команды
 
+**Проекты**
 - `/help` — список команд
-- `/projects` — что у тебя загружено
+- `/projects` — что загружено
 - `/clone <git-url> [имя]` — склонировать репо
 - `/project <имя>` — переключиться
 - `/cd <subpath>` — субпапка внутри проекта
 - `/pwd` — текущий путь
+
+**Выполнение**
 - `/exec <команда>` — bash в проекте (timeout 30s)
 - `/git <args>` — короткая запись для `/exec git ...`
+
+**Мозги (ключи и модели)**
+- `/keys` — список провайдеров и статус их API-ключей (значения замаскированы)
+- `/setkey <provider> <key>` — задать ключ. Provider: `openrouter`, `anthropic`, `openai`. Сообщение с ключом бот удалит автоматически.
+- `/delkey <provider>` — удалить сохранённый ключ
+- `/models` — список моделей и текущая
+- `/setmodel <model>` — переключить модель. Например `anthropic/claude-opus-4.5` или `nvidia/nemotron-3-super-120b-a12b:free`.
+
+**Управление**
+- `/disable`, `/enable` — выключить/включить бот (в disabled режиме работает только `/enable`, `/help`, `/keys`)
 - `/reset` — сброс контекста разговора
 
-Любое сообщение **без** `/` — это запрос агенту. Он сам решит, какие файлы прочитать, что выполнить, и ответит.
+Любое сообщение **без** `/` — запрос агенту. Он сам решит, какие файлы прочитать, что выполнить, и ответит.
 
 ## Как это работает
 
@@ -73,6 +86,25 @@ python -m bot.main
 
 ## Модели
 
-По умолчанию `nvidia/nemotron-3-super-120b-a12b:free` (стабильный free-tier с поддержкой tool calling). Если он упрётся в rate limit — fallback на `openai/gpt-oss-120b:free`, потом `qwen/qwen3-coder:free`, потом `minimax/minimax-m2.5:free`.
+Бот ходит в OpenRouter — один API-ключ покрывает все модели (Anthropic Claude, OpenAI GPT, free-tier и т.д.).
 
-Сменить — переменная `MODEL` в env. Список free моделей с tools: https://openrouter.ai/models?max_price=0&supported_parameters=tools
+По умолчанию: `nvidia/nemotron-3-super-120b-a12b:free` (free-tier с tool calling).
+
+Рекомендуемые варианты (`/models` в боте покажет их все):
+- `anthropic/claude-opus-4.5` — самый сильный, требует OpenRouter credit
+- `anthropic/claude-sonnet-4.5` — баланс цена/качество
+- `openai/gpt-5`, `openai/gpt-4o` — OpenAI через OpenRouter
+- `openai/gpt-oss-120b:free`, `qwen/qwen3-coder:free` — free-tier
+
+Когда активная модель — free, бот автоматически fall-back-ит на другие free-модели при rate-limit. Для paid-моделей (Opus, Sonnet, GPT-4) fallback не срабатывает — чтобы не было скрытого довнгрейда. Если Opus упал — бот покажет ошибку.
+
+## API-ключи
+
+Два варианта как бот берёт ключ OpenRouter:
+
+1. **Через Telegram** (`/setkey openrouter sk-or-...`) — приоритетный источник. Сообщение с ключом бот удалит из чата. Ключ сохраняется в `data/state.json` (chmod 600), переживает рестарты.
+2. **Через env** (`OPENROUTER_API_KEY=...`) — fallback. Используется если в Telegram ничего не задано.
+
+`/keys` показать что сейчас активно и откуда. Значения всегда маскируются (`sk-or-***af04`).
+
+Получить ключ: https://openrouter.ai/keys (минимум $5 на счёт для Anthropic/OpenAI моделей, free-модели бесплатно).
