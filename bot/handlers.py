@@ -7,7 +7,7 @@ from aiogram.types import Message
 from .agent import run_agent
 from .config import ALLOWED_USER_IDS, MODEL, PROJECTS_DIR
 from .storage import storage
-from .tools import ToolError, clone_repo, exec_bash
+from .tools import ToolError, clone_repo, exec_bash, project_root_for
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -46,23 +46,45 @@ async def _deny(message: Message) -> None:
     )
 
 
+def _html_escape(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# Telegram hard limit is 4096 characters per message. We reserve room for the
+# `<pre></pre>` wrapper (13 chars) and a small margin for safety.
+_TG_LIMIT = 4096
+_PRE_OVERHEAD = len("<pre></pre>")
+_CHUNK_LIMIT = _TG_LIMIT - _PRE_OVERHEAD - 16
+
+
+def _safe_cut(escaped: str, limit: int) -> int:
+    """Pick a cut position <= ``limit`` that does not split an HTML entity."""
+    cut = escaped.rfind("\n", 0, limit)
+    if cut < limit // 2:
+        cut = escaped.rfind(" ", 0, limit)
+    if cut < limit // 2:
+        cut = limit
+    # HTML entities introduced by `_html_escape` are at most 5 chars (`&amp;`)
+    amp = escaped.rfind("&", max(0, cut - 6), cut)
+    if amp != -1 and ";" not in escaped[amp:cut]:
+        cut = amp
+    return max(cut, 1)
+
+
 async def _send_long(message: Message, text: str) -> None:
     if not text:
         text = "(пусто)"
+    escaped = _html_escape(text)
     chunks: list[str] = []
-    while len(text) > 3500:
-        cut = text.rfind("\n", 0, 3500)
-        if cut < 1500:
-            cut = 3500
-        chunks.append(text[:cut])
-        text = text[cut:]
-    chunks.append(text)
+    while len(escaped) > _CHUNK_LIMIT:
+        cut = _safe_cut(escaped, _CHUNK_LIMIT)
+        chunks.append(escaped[:cut])
+        escaped = escaped[cut:]
+    chunks.append(escaped)
     for chunk in chunks:
-        await message.answer(f"<pre>{_html_escape(chunk)}</pre>")
-
-
-def _html_escape(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if not chunk.strip():
+            continue
+        await message.answer(f"<pre>{chunk}</pre>")
 
 
 @router.message(Command("start", "help"))
@@ -144,9 +166,7 @@ async def cmd_cd(message: Message, command: CommandObject) -> None:
         return
     rel = (command.args or "").strip() or "."
     target = (cwd / rel).resolve()
-    project_root = next(
-        (p for p in [cwd, *cwd.parents] if p.parent == PROJECTS_DIR), cwd
-    )
+    project_root = project_root_for(cwd).resolve()
     if project_root not in target.parents and target != project_root:
         await message.answer("Нельзя выйти за пределы проекта")
         return

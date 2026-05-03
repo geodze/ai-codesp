@@ -76,13 +76,27 @@ class ToolError(Exception):
     pass
 
 
+def project_root_for(cwd: Path) -> Path:
+    """Return the project root for ``cwd`` (the direct child of PROJECTS_DIR).
+
+    If ``cwd`` already is a project root, returns it. If ``cwd`` is somewhere
+    deeper (after ``/cd subdir``) walks up to the immediate child of
+    ``PROJECTS_DIR``. Falls back to ``cwd`` if no PROJECTS_DIR ancestor is
+    found.
+    """
+    for candidate in [cwd, *cwd.parents]:
+        if candidate.parent == PROJECTS_DIR:
+            return candidate
+    return cwd
+
+
 def _resolve(cwd: Path, rel: str) -> Path:
     if not cwd:
         raise ToolError("No project selected. Use /clone or /project first.")
     target = (cwd / rel).resolve()
-    cwd_resolved = cwd.resolve()
-    if cwd_resolved not in target.parents and target != cwd_resolved:
-        raise ToolError(f"Path '{rel}' escapes project root")
+    root = project_root_for(cwd).resolve()
+    if root not in target.parents and target != root:
+        raise ToolError(f"path '{rel}' escapes project '{root.name}'")
     return target
 
 
