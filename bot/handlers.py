@@ -148,20 +148,28 @@ def _safe_cut(escaped: str, limit: int) -> int:
     return max(cut, 1)
 
 
-async def _send_long(message: Message, text: str) -> None:
+async def _send_long(message: Message, text: str, *, code: bool = True) -> None:
+    """Send a (possibly long) reply, splitting on Telegram's 4096-char limit.
+
+    When ``code`` is True (default) each chunk is wrapped in ``<pre>...</pre>``
+    so shell output / file contents render in monospace. Set ``code=False``
+    for natural-language replies (e.g. LLM agent answers) so they show up as
+    plain rich text instead of a copy-button code block.
+    """
     if not text:
         text = "(пусто)"
     escaped = _html_escape(text)
     chunks: list[str] = []
-    while len(escaped) > _CHUNK_LIMIT:
-        cut = _safe_cut(escaped, _CHUNK_LIMIT)
+    limit = _CHUNK_LIMIT if code else _TG_LIMIT - 16
+    while len(escaped) > limit:
+        cut = _safe_cut(escaped, limit)
         chunks.append(escaped[:cut])
         escaped = escaped[cut:]
     chunks.append(escaped)
     for chunk in chunks:
         if not chunk.strip():
             continue
-        await message.answer(f"<pre>{chunk}</pre>")
+        await message.answer(f"<pre>{chunk}</pre>" if code else chunk)
 
 
 @router.message(Command("help"))
@@ -543,4 +551,4 @@ async def handle_text(message: Message) -> None:
         logger.exception("agent failed")
         await message.answer(f"Ошибка агента: {_html_escape(str(exc))}")
         return
-    await _send_long(message, answer)
+    await _send_long(message, answer, code=False)
