@@ -45,6 +45,9 @@ router.message.middleware(_InboxLoggerMiddleware())
 HELP_TEXT = (
     "<b>codespace bot</b>\n"
     "Brain: <code>{brain}</code> | model: <code>{model}</code> {state}\n\n"
+    "<b>Старт / настройка</b>\n"
+    "/start — открыть онбординг (нажать кнопку чтобы стать владельцем)\n"
+    "/setup — заново выбрать мозг и ввести ключи через кнопки\n\n"
     "<b>Проекты</b>\n"
     "/projects — список загруженных проектов\n"
     "/clone &lt;git-url&gt; [имя] — клонировать репо\n"
@@ -89,18 +92,34 @@ MODEL_CATALOGUE: list[tuple[str, str]] = [
 
 
 def _is_authorized(message: Message) -> bool:
+    """A message is authorised when it comes from the registered owner.
+
+    Backwards compatibility: if no owner has been claimed yet *and* the env
+    var ``ALLOWED_USER_IDS`` is set, fall back to that list. This lets
+    existing self-hosters keep working until they re-onboard via /start.
+    """
     user = message.from_user
     if user is None:
         return False
-    return user.id in ALLOWED_USER_IDS if ALLOWED_USER_IDS else False
+    owner_id = storage.get_owner_id()
+    if owner_id is not None:
+        return user.id == owner_id
+    if ALLOWED_USER_IDS:
+        return user.id in ALLOWED_USER_IDS
+    return False
 
 
 async def _deny(message: Message) -> None:
     user = message.from_user
     uid = user.id if user else "unknown"
+    owner_id = storage.get_owner_id()
+    if owner_id is None:
+        await message.answer(
+            "Этот контейнер ещё не привязан к владельцу. Жми /start чтобы стать им."
+        )
+        return
     await message.answer(
-        f"Доступ запрещён.\nТвой telegram id: <code>{uid}</code>\n"
-        "Чтобы получить доступ, добавь этот id в <code>ALLOWED_USER_IDS</code> на сервере."
+        f"Этот бот принадлежит другому владельцу.\nТвой telegram id: <code>{uid}</code>"
     )
 
 
@@ -145,8 +164,10 @@ async def _send_long(message: Message, text: str) -> None:
         await message.answer(f"<pre>{chunk}</pre>")
 
 
-@router.message(Command("start", "help"))
-async def cmd_start(message: Message) -> None:
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    # Note: /start is handled by wizard.py — it triggers the owner-claim or
+    # the brain re-picker. /help just dumps the command reference.
     if not _is_authorized(message):
         await _deny(message)
         return

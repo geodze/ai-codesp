@@ -34,19 +34,33 @@ class NoApiKeyError(RuntimeError):
 
 
 def _build_client() -> AsyncOpenAI:
-    """Create a fresh OpenAI client per request so /setkey takes effect immediately."""
+    """Create a fresh OpenAI client per request so /setkey takes effect immediately.
+
+    Picks the endpoint based on ``storage.get_provider()``:
+      - ``openrouter`` (default): hits https://openrouter.ai/api/v1
+      - ``custom``: hits ``storage.get_base_url()`` — set via /setup wizard
+        for self-hosted endpoints (vLLM, Ollama, Together, Groq, etc.).
+    """
     api_key = storage.get_provider_key("openrouter")
+    provider = storage.get_provider()
+    if provider == "custom":
+        base_url = storage.get_base_url() or OPENROUTER_BASE_URL
+    else:
+        base_url = OPENROUTER_BASE_URL
+
     if not api_key:
+        if provider == "custom":
+            raise NoApiKeyError(
+                "Не задан API-ключ для кастомного endpoint-а. Открой /setup → 🔑 API ключ."
+            )
         raise NoApiKeyError(
             "Не задан ключ OpenRouter. Поставь его командой:\n"
             "<code>/setkey openrouter sk-or-...</code>\n"
             "Получить ключ: https://openrouter.ai/keys"
         )
-    return AsyncOpenAI(
-        api_key=api_key,
-        base_url=OPENROUTER_BASE_URL,
-        default_headers={"HTTP-Referer": HTTP_REFERER, "X-Title": APP_TITLE},
-    )
+
+    headers = {"HTTP-Referer": HTTP_REFERER, "X-Title": APP_TITLE}
+    return AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=headers)
 
 
 def _candidate_models() -> list[str]:

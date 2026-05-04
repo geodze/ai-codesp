@@ -21,7 +21,10 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 ALLOWED_USER_IDS = _split_ids(os.environ.get("ALLOWED_USER_IDS", ""))
 
-MODE = os.environ.get("BOT_MODE", "webhook")
+# Default to polling so a freshly-deployed container works without any
+# webhook URL setup. Switch to ``webhook`` + set ``PUBLIC_URL`` for
+# production scale.
+MODE = os.environ.get("BOT_MODE", "polling")
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 WEBHOOK_PATH = f"/tg/{BOT_TOKEN.split(':', 1)[0]}"

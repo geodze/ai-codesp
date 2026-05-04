@@ -168,5 +168,47 @@ class Storage:
         self._settings()["enabled"] = bool(enabled)
         self._save()
 
+    # ---- owner (single-owner claim) -------------------------------------
+
+    def get_owner_id(self) -> int | None:
+        """Telegram user-id that owns this container, or ``None`` if unclaimed."""
+        raw = self._settings().get("owner_id")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def set_owner_id(self, user_id: int) -> None:
+        """Lock the container to a single Telegram user. Idempotent."""
+        self._settings()["owner_id"] = int(user_id)
+        self._save()
+
+    # ---- LLM provider selection (auto-mode backend) ---------------------
+
+    def get_provider(self) -> str:
+        """Which LLM provider auto-mode talks to.
+
+        Defaults to ``openrouter`` for backwards compatibility. Other valid
+        values are ``custom`` (a self-hosted OpenAI-compatible endpoint) or
+        ``devin`` (handled separately by brain=devin and ignored here).
+        """
+        return str(self._settings().get("provider", "openrouter"))
+
+    def set_provider(self, provider: str) -> None:
+        if provider not in ("openrouter", "custom"):
+            raise ValueError(
+                f"unknown provider '{provider}', expected 'openrouter' or 'custom'"
+            )
+        self._settings()["provider"] = provider
+        self._save()
+
+    def get_base_url(self) -> str:
+        """Base URL for the active provider. Empty = use provider's default."""
+        return str(self._settings().get("base_url", ""))
+
+    def set_base_url(self, url: str) -> None:
+        self._settings()["base_url"] = url.rstrip("/")
+        self._save()
+
 
 storage = Storage()
