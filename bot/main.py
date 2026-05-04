@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -8,7 +9,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-from .config import ALLOWED_USER_IDS, BOT_TOKEN, MODE, PORT, WEBHOOK_PATH, WEBHOOK_URL
+from .config import (
+    ALLOWED_USER_IDS,
+    BOT_TOKEN,
+    KEEP_ALIVE_INTERVAL,
+    KEEP_ALIVE_URL,
+    MODE,
+    PORT,
+    WEBHOOK_PATH,
+    WEBHOOK_URL,
+)
 from .handlers import router
 from .storage import storage
 from .wizard import wizard_router
@@ -37,6 +47,41 @@ async def _health(_: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+async def _keep_alive_loop() -> None:
+    """Periodically GET our own ``/healthz`` to keep Render Free awake.
+
+    Render counts only *incoming* HTTP traffic toward the 15-minute idle
+    timer — the bot's outgoing Telegram polling doesn't qualify. Hitting
+    our own public URL through the platform's load balancer DOES count.
+
+    Disabled when no URL was resolved (local dev, VPS) or when
+    ``KEEP_ALIVE_INTERVAL`` is set to ``0``.
+    """
+    if not KEEP_ALIVE_URL or KEEP_ALIVE_INTERVAL <= 0:
+        return
+    target = f"{KEEP_ALIVE_URL}/healthz"
+    logger.info(
+        "keep-alive: pinging %s every %ss to prevent cloud spin-down",
+        target,
+        KEEP_ALIVE_INTERVAL,
+    )
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        # First ping after a short grace period so the health server has
+        # time to bind and the platform DNS to resolve our URL.
+        await asyncio.sleep(min(KEEP_ALIVE_INTERVAL, 15))
+        while True:
+            try:
+                async with session.get(target) as resp:
+                    if resp.status >= 400:
+                        logger.warning(
+                            "keep-alive ping returned HTTP %s", resp.status
+                        )
+            except Exception as exc:  # noqa: BLE001 — log everything, retry forever
+                logger.warning("keep-alive ping failed: %s", exc)
+            await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+
+
 async def _run_polling() -> None:
     """Long-polling mode + a tiny aiohttp server for cloud health checks.
 
@@ -57,10 +102,16 @@ async def _run_polling() -> None:
     await site.start()
     logger.info("health server listening on 0.0.0.0:%s", PORT)
 
+    keepalive_task = asyncio.create_task(_keep_alive_loop())
     logger.info("starting polling")
     try:
         await dp.start_polling(bot)
     finally:
+        keepalive_task.cancel()
+        try:
+            await keepalive_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
         await runner.cleanup()
         await bot.session.close()
 

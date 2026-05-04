@@ -30,6 +30,35 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 WEBHOOK_PATH = f"/tg/{BOT_TOKEN.split(':', 1)[0]}"
 WEBHOOK_URL = f"{PUBLIC_URL}{WEBHOOK_PATH}" if PUBLIC_URL else ""
 
+
+def _resolve_keepalive_url() -> str:
+    """Best-effort detect the bot's own public URL for self-pinging.
+
+    Render, Railway, Fly.io expose this as platform-specific env vars; if
+    none of them are set, fall back to ``KEEP_ALIVE_URL`` or ``PUBLIC_URL``.
+    Returns empty string when no URL is known (local dev / VPS) — caller
+    should treat that as "self-ping disabled".
+    """
+    explicit = os.environ.get("KEEP_ALIVE_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    render = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if render:
+        return render
+    rw_dom = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if rw_dom:
+        return f"https://{rw_dom}"
+    fly_app = os.environ.get("FLY_APP_NAME", "").strip()
+    if fly_app:
+        return f"https://{fly_app}.fly.dev"
+    return PUBLIC_URL
+
+
+# Self-ping keeps Render Free awake. Set ``KEEP_ALIVE_INTERVAL=0`` to
+# disable the loop even when a URL is detected.
+KEEP_ALIVE_URL = _resolve_keepalive_url()
+KEEP_ALIVE_INTERVAL = int(os.environ.get("KEEP_ALIVE_INTERVAL", "30"))
+
 DEFAULT_MODEL = os.environ.get("MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 # Backward-compat alias for older imports.
 MODEL = DEFAULT_MODEL
