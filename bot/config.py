@@ -54,10 +54,23 @@ def _resolve_keepalive_url() -> str:
     return PUBLIC_URL
 
 
-# Self-ping keeps Render Free awake. Set ``KEEP_ALIVE_INTERVAL=0`` to
-# disable the loop even when a URL is detected.
+# Self-ping keeps Render Free (15-minute idle timer) awake. By default we
+# pick a random delay between MIN and MAX seconds, biased toward MAX so
+# the pattern doesn't look like a fixed cron interval. Set
+# ``KEEP_ALIVE_INTERVAL=N`` to use a fixed N-second interval instead, or
+# ``KEEP_ALIVE_INTERVAL=0`` to disable self-pinging entirely (e.g. on Fly
+# always-on or your own VPS).
 KEEP_ALIVE_URL = _resolve_keepalive_url()
-KEEP_ALIVE_INTERVAL = int(os.environ.get("KEEP_ALIVE_INTERVAL", "30"))
+
+_raw_interval = os.environ.get("KEEP_ALIVE_INTERVAL", "").strip()
+if _raw_interval == "":
+    KEEP_ALIVE_INTERVAL: int | None = None  # random mode
+else:
+    KEEP_ALIVE_INTERVAL = int(_raw_interval)  # 0 disables, >0 fixed
+
+KEEP_ALIVE_MIN_SECONDS = int(os.environ.get("KEEP_ALIVE_MIN_SECONDS", "240"))  # 4 min
+KEEP_ALIVE_MAX_SECONDS = int(os.environ.get("KEEP_ALIVE_MAX_SECONDS", "420"))  # 7 min
+KEEP_ALIVE_BIAS = float(os.environ.get("KEEP_ALIVE_BIAS", "0.8"))
 
 DEFAULT_MODEL = os.environ.get("MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 # Backward-compat alias for older imports.

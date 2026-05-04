@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 
 import aiohttp
 from aiogram import Bot, Dispatcher
@@ -12,7 +13,10 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from .config import (
     ALLOWED_USER_IDS,
     BOT_TOKEN,
+    KEEP_ALIVE_BIAS,
     KEEP_ALIVE_INTERVAL,
+    KEEP_ALIVE_MAX_SECONDS,
+    KEEP_ALIVE_MIN_SECONDS,
     KEEP_ALIVE_URL,
     MODE,
     PORT,
@@ -47,6 +51,25 @@ async def _health(_: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+def _next_keepalive_delay() -> float:
+    """Compute the next ping delay in seconds.
+
+    Three modes:
+      * ``KEEP_ALIVE_INTERVAL`` is a positive int → fixed interval.
+      * ``KEEP_ALIVE_INTERVAL`` is ``None`` (default, env var unset) →
+        random delay in ``[MIN, MAX]`` with ``BIAS`` probability of
+        landing in the upper half (closer to ``MAX``). This makes the
+        ping pattern look human-ish rather than a fixed cron tick.
+      * ``KEEP_ALIVE_INTERVAL == 0`` → disabled (caller short-circuits).
+    """
+    if KEEP_ALIVE_INTERVAL is not None and KEEP_ALIVE_INTERVAL > 0:
+        return float(KEEP_ALIVE_INTERVAL)
+    midpoint = (KEEP_ALIVE_MIN_SECONDS + KEEP_ALIVE_MAX_SECONDS) / 2
+    if random.random() < KEEP_ALIVE_BIAS:
+        return random.uniform(midpoint, KEEP_ALIVE_MAX_SECONDS)
+    return random.uniform(KEEP_ALIVE_MIN_SECONDS, midpoint)
+
+
 async def _keep_alive_loop() -> None:
     """Periodically GET our own ``/healthz`` to keep Render Free awake.
 
@@ -55,21 +78,28 @@ async def _keep_alive_loop() -> None:
     our own public URL through the platform's load balancer DOES count.
 
     Disabled when no URL was resolved (local dev, VPS) or when
-    ``KEEP_ALIVE_INTERVAL`` is set to ``0``.
+    ``KEEP_ALIVE_INTERVAL`` is explicitly set to ``0``.
     """
-    if not KEEP_ALIVE_URL or KEEP_ALIVE_INTERVAL <= 0:
+    if not KEEP_ALIVE_URL or KEEP_ALIVE_INTERVAL == 0:
         return
     target = f"{KEEP_ALIVE_URL}/healthz"
-    logger.info(
-        "keep-alive: pinging %s every %ss to prevent cloud spin-down",
-        target,
-        KEEP_ALIVE_INTERVAL,
-    )
+    if KEEP_ALIVE_INTERVAL is not None and KEEP_ALIVE_INTERVAL > 0:
+        logger.info(
+            "keep-alive: pinging %s every %ss (fixed)", target, KEEP_ALIVE_INTERVAL
+        )
+    else:
+        logger.info(
+            "keep-alive: pinging %s every %d-%ds (%.0f%% bias toward upper end)",
+            target,
+            KEEP_ALIVE_MIN_SECONDS,
+            KEEP_ALIVE_MAX_SECONDS,
+            KEEP_ALIVE_BIAS * 100,
+        )
     timeout = aiohttp.ClientTimeout(total=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # First ping after a short grace period so the health server has
         # time to bind and the platform DNS to resolve our URL.
-        await asyncio.sleep(min(KEEP_ALIVE_INTERVAL, 15))
+        await asyncio.sleep(min(_next_keepalive_delay(), 30))
         while True:
             try:
                 async with session.get(target) as resp:
@@ -79,7 +109,7 @@ async def _keep_alive_loop() -> None:
                         )
             except Exception as exc:  # noqa: BLE001 — log everything, retry forever
                 logger.warning("keep-alive ping failed: %s", exc)
-            await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+            await asyncio.sleep(_next_keepalive_delay())
 
 
 async def _run_polling() -> None:
