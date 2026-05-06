@@ -1,3 +1,18 @@
+# Render.com one-click blueprint.
+#
+# Deploy via "New +" → "Blueprint" → paste this repo URL.
+#
+# Required env vars (set in the Render dashboard after the service is created
+# OR through the prompts that show up during Blueprint apply):
+#   BOT_TOKEN  — from @BotFather on Telegram (the only mandatory secret)
+#
+# Optional:
+#   PUBLIC_URL — Render assigns a https://<name>.onrender.com host once the
+#                service is live; copy that here so webhook mode works. If
+#                left blank, the bot falls back to long polling automatically.
+#
+# Everything else (OpenRouter key, model, allowed users) is configured from
+# Telegram via /start → onboarding wizard. No need to redeploy to change it.
 services:
   - type: web
     name: codesp-bot
@@ -6,20 +21,13 @@ services:
     dockerContext: .
     plan: free
     autoDeploy: true
+    healthCheckPath: /healthz
     envVars:
-      - key: BOT_MODE
-        value: webhook
       - key: BOT_TOKEN
         sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: ALLOWED_USER_IDS
-        sync: false
+      - key: BOT_MODE
+        value: webhook
       - key: PUBLIC_URL
         sync: false
-      - key: MODEL
-        value: nvidia/nemotron-3-super-120b-a12b:free
-      - key: FALLBACK_MODELS
-        value: openai/gpt-oss-120b:free,qwen/qwen3-coder:free,minimax/minimax-m2.5:free
       - key: DATA_DIR
         value: /tmp/bot-data
